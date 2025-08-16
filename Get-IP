@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# 企业微信机器人 URL（替换为你的 key）
+WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key="
+
+# 调试模式：打印每一步结果
+set -x
+
+# 获取 IP（如果 ip route 失败则切换为 hostname）
+IP_ADDR=$(ip route get 1.2.3.4 2>/dev/null | awk '{print $7}' | head -n1)
+if [ -z "$IP_ADDR" ]; then
+    IP_ADDR=$(hostname -I | awk '{print $1}')
+fi
+
+# 生成消息内容
+MSG_CONTENT="主机：$(hostname)\nIP：$IP_ADDR\n时间：$(date "+%F %T")"
+
+# 构建 JSON 请求体
+JSON_DATA='{
+    "msgtype": "text",
+    "text": {
+        "content": "'"${MSG_CONTENT}"'",
+        "mentioned_list": [""]
+    }
+}'
+
+# 发送请求并记录完整响应
+echo "=== 调试信息 ==="
+echo "IP: $IP_ADDR"
+echo "JSON: $JSON_DATA"
+
+response=$(curl -sS -m 10 -w "\nHTTP状态码：%{http_code}" \
+  -H "Content-Type: application/json" \
+  -d "$JSON_DATA" \
+  "$WEBHOOK_URL")
+
+# 输出详细响应
+echo -e "\n=== 响应内容 ==="
+echo "$response"
+
+# 检查是否成功
+if [[ "$response" == *"ok"* ]]; then
+    echo "推送成功"
+else
+    echo "推送失败"
+    exit 1
+fi
