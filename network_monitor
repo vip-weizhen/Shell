@@ -1,0 +1,132 @@
+#!/bin/bash
+
+# 企业微信机器人Webhook URL（请替换为您的实际URL）
+WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key="
+
+# 自动检测活动网络接口
+INTERFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
+[ -z "$INTERFACE" ] && INTERFACE="eth0"
+
+# 流量统计文件路径
+STATS_FILE="/tmp/network_stats.txt"
+
+# 获取主机名
+HOSTNAME=$(hostname)
+
+# 获取当前流量统计
+get_current_stats() {
+    # 从/proc/net/dev提取指定接口的流量数据
+    # 使用更可靠的awk解析方式
+    awk -v interface="$INTERFACE" 'BEGIN {IGNORECASE=1} 
+    $0 ~ interface ":" {
+        gsub(/:/, "", $1);
+        print $2, $10, systime()
+    }' /proc/net/dev
+}
+
+# 计算流量速率
+calculate_speed() {
+    # 读取当前流量数据
+    read current_rx current_tx current_time <<< $(get_current_stats)
+    
+    # 检查历史记录是否存在
+    if [ ! -f "$STATS_FILE" ]; then
+        echo "$current_rx $current_tx $current_time" > "$STATS_FILE"
+        echo "首次运行，初始化数据..."
+        echo "0B/s 0B/s 0"
+        return
+    fi
+
+    # 读取历史数据
+    read last_rx last_tx last_time < "$STATS_FILE"
+    
+    # 计算时间差（秒）
+    time_diff=$((current_time - last_time))
+    [ $time_diff -eq 0 ] && time_diff=1  # 避免除以0
+    
+    # 计算速率（Bytes/s）
+    rx_speed=$(( (current_rx - last_rx) / time_diff ))
+    tx_speed=$(( (current_tx - last_tx) / time_diff ))
+    
+    # 更新统计文件
+    echo "$current_rx $current_tx $current_time" > "$STATS_FILE"
+    
+    # 转换单位函数 - 完全重写确保正确性
+    format_speed() {
+        local speed=$1
+        # 处理小数值
+        if [ $speed -lt 0 ]; then
+            printf "0B/s"
+            return
+        fi
+        
+        # 转换为浮点数计算
+        if [ $speed -ge 1048576 ]; then
+            printf "%.2fMB/s" $(echo "scale=4; $speed / 1048576" | bc)
+        elif [ $speed -ge 1024 ]; then
+            printf "%.2fKB/s" $(echo "scale=4; $speed / 1024" | bc)
+        elif [ $speed -gt 0 ]; then
+            printf "%dB/s" $speed
+        else
+            printf "0B/s"
+        fi
+    }
+
+    # 返回格式化结果和时间差
+    rx_formatted=$(format_speed $rx_speed)
+    tx_formatted=$(format_speed $tx_speed)
+    echo "$rx_formatted $tx_formatted $time_diff"
+}
+
+# 发送消息到企业微信
+send_to_wechat() {
+    local rx_speed=$1
+    local tx_speed=$2
+    local time_diff=$3
+    
+    # 构造JSON消息体
+    JSON_MSG=$(cat <<EOF
+{
+    "msgtype": "markdown",
+    "markdown": {
+        "content": "**网络流量监控报告**\n
+        >**主机名**: <font color=\"info\">$HOSTNAME</font>\n
+        >**接口**: <font color=\"info\">$INTERFACE</font>\n
+        >**入站流量**: <font color=\"warning\">$rx_speed</font>\n
+        >**出站流量**: <font color=\"warning\">$tx_speed</font>\n
+        >**监控时段**: ${time_diff}秒\n
+        >**时间**: `date '+%Y-%m-%d %H:%M:%S'`\n"
+    }
+}
+EOF
+)
+
+    # 发送请求
+    curl -s -H "Content-Type: application/json" \
+    -d "$JSON_MSG" \
+    "$WEBHOOK_URL" > /dev/null
+}
+
+# 主执行流程
+if ! ip link show $INTERFACE &> /dev/null; then
+    echo "错误：网络接口 $INTERFACE 不存在！"
+    exit 1
+fi
+
+# 检查是否首次运行
+if [ ! -f "$STATS_FILE" ]; then
+    get_current_stats > "$STATS_FILE"
+    echo "首次运行，初始化数据..."
+    exit 0
+fi
+
+# 获取流量数据和时间差
+result=$(calculate_speed)
+read rx tx time_diff <<< $result
+
+# 调试输出
+echo "DEBUG: RX=$rx, TX=$tx, TimeDiff=$time_diff"
+
+# 发送消息
+send_to_wechat "$rx" "$tx" "$time_diff"
+echo "流量报告已发送: RX=$rx, TX=$tx, 时段=${time_diff}秒"
