@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# Docker 日志清理脚本
+# 功能：清理Docker容器日志文件，释放磁盘空间
+# 使用方法：可以设置为cron定时任务定期执行
+
+# 设置日志文件最大大小（默认100M）
+MAX_LOG_SIZE=${MAX_LOG_SIZE:-"100M"}
+
+# 清理方法
+clean_docker_logs() {
+    echo "===== 开始清理Docker容器日志 ====="
+    date
+
+    # 获取所有正在运行的容器
+    containers=$(docker ps --format '{{.Names}}')
+
+    if [ -z "$containers" ]; then
+        echo "没有找到运行的Docker容器"
+        return
+    fi
+
+    echo "找到以下运行中的容器:"
+    echo "$containers"
+
+    # 遍历每个容器并清理日志
+    for container in $containers; do
+        echo "处理容器: $container"
+        
+        # 获取容器日志文件路径
+        log_file=$(docker inspect --format='{{.LogPath}}' "$container")
+        
+        if [ -z "$log_file" ]; then
+            echo "容器 $container 没有日志文件或使用其他日志驱动"
+            continue
+        fi
+
+        if [ -f "$log_file" ]; then
+            # 检查日志文件大小
+            file_size=$(du -h "$log_file" | cut -f1)
+            echo "当前日志大小: $file_size"
+            
+            # 清理日志文件
+            echo "清理日志文件: $log_file"
+            truncate -s 0 "$log_file"
+            echo "已清理容器 $container 的日志"
+        else
+            echo "日志文件不存在: $log_file"
+        fi
+    done
+
+    # 可选：清理已停止容器的日志
+    echo "清理已停止容器的日志..."
+    docker container prune -f
+
+    # 可选：清理无用的镜像
+    echo "清理无用的镜像..."
+    docker image prune -af
+
+    echo "===== 清理完成 ====="
+    date
+    echo ""
+}
+
+# 主执行
+clean_docker_logs
+
+# 检查磁盘空间
+echo "当前磁盘使用情况:"
+df -h
