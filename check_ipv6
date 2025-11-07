@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # 企业微信机器人Webhook
-WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=08060c42-9b8d-40e6-a29e-a31e670b1549"  
+WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key="    
 
 # 获取IPv6前缀
 IPV6PD=$(ubus call network.interface.wan6 status | grep -A 3 '"ipv6-prefix":' | grep address | awk '{print $2}')
