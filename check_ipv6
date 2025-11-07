@@ -1,13 +1,14 @@
 #!/bin/sh
 
-# 企业微信机器人Webhook
-WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key="    
+# === 配置区 ===
+DEVICE_NAME="OpenWRT-客厅路由"   # ← 在这里改成你的设备名称
+WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key="  
 
-# 获取IPv6前缀
+# === 检查IPv6状态 ===
 IPV6PD=$(ubus call network.interface.wan6 status | grep -A 3 '"ipv6-prefix":' | grep address | awk '{print $2}')
 
 if [ "$IPV6PD" != "" ]; then
-    MSG="✅ 网络正常：检测到IPv6前缀 $IPV6PD"
+    MSG="✅ [$DEVICE_NAME] 网络正常：检测到IPv6前缀 $IPV6PD"
     echo "network OK"
 else
     ubus call network.interface.wan6 down
@@ -15,10 +16,10 @@ else
     ubus call network.interface.wan6 up
     sleep 1
     /etc/init.d/odhcpd restart
-    MSG="⚠️ 检测到IPv6前缀为空，已执行网络重启操作。"
+    MSG="⚠️ [$DEVICE_NAME] 检测到IPv6前缀为空，已执行网络重启操作。"
 fi
 
-# 推送到企业微信机器人
+# === 推送到企业微信机器人 ===
 curl -s "$WEBHOOK_URL" \
   -H "Content-Type: application/json" \
   -d "{\"msgtype\": \"text\", \"text\": {\"content\": \"$(date '+%Y-%m-%d %H:%M:%S')\n$MSG\"}}"
